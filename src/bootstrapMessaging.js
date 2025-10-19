@@ -412,7 +412,7 @@ export default function BootstrapMessaging() {
                 />
             )}
             {(shouldShowMessagingWindow || isMinimized) && !useWidgetUI &&
-                <Draggable intitialPosition={{ x: 1000, y: 500 }}>
+                <Draggable intitialPosition={{ x: window.innerWidth - 570, y: window.innerHeight - 700 }}>
                     <MessagingWindow
                         shouldShowMessagingWindow={shouldShowMessagingWindow}
                         isExistingConversation={isExistingConversation}
@@ -423,13 +423,15 @@ export default function BootstrapMessaging() {
                 </Draggable>
             }
             {(shouldShowMessagingWindow || isMinimized) && useWidgetUI &&
-                <MessagingWindow
-                    shouldShowMessagingWindow={shouldShowMessagingWindow}
-                    isExistingConversation={isExistingConversation}
-                    showMessagingWindow={showMessagingWindow}
-                    deactivateMessagingButton={appUiReady}
-                    isMinimized={isMinimized}
-                    onConversationCleanup={onConversationCleanup} />
+                <Draggable intitialPosition={{ x: window.innerWidth - 570, y: window.innerHeight - 700 }}>
+                    <MessagingWindow
+                        shouldShowMessagingWindow={shouldShowMessagingWindow}
+                        isExistingConversation={isExistingConversation}
+                        showMessagingWindow={showMessagingWindow}
+                        deactivateMessagingButton={appUiReady}
+                        isMinimized={isMinimized}
+                        onConversationCleanup={onConversationCleanup} />
+                </Draggable>
             }
         </>
     );
