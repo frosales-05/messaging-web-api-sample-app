@@ -13,8 +13,6 @@ import { storeOrganizationId, storeDeploymentDeveloperName, storeSalesforceMessa
 import { determineStorageType, initializeWebStorage, getItemInWebStorageByKey, getItemInPayloadByKey } from './helpers/webstorageUtils';
 import { APP_CONSTANTS, STORAGE_KEYS } from './helpers/constants';
 
-import Draggable from "./ui-effects/draggable";
-
 export default function BootstrapMessaging() {
     let [shouldShowMessagingButton, setShowMessagingButton] = useState(false);
     let [orgId, setOrgId] = useState('');
@@ -412,26 +410,22 @@ export default function BootstrapMessaging() {
                 />
             )}
             {(shouldShowMessagingWindow || isMinimized) && !useWidgetUI &&
-                <Draggable intitialPosition={{ x: window.innerWidth - 570, y: window.innerHeight - 700 }}>
-                    <MessagingWindow
-                        shouldShowMessagingWindow={shouldShowMessagingWindow}
-                        isExistingConversation={isExistingConversation}
-                        showMessagingWindow={showMessagingWindow}
-                        deactivateMessagingButton={appUiReady}
-                        isMinimized={isMinimized}
-                        onConversationCleanup={onConversationCleanup} />
-                </Draggable>
+                <MessagingWindow
+                    shouldShowMessagingWindow={shouldShowMessagingWindow}
+                    isExistingConversation={isExistingConversation}
+                    showMessagingWindow={showMessagingWindow}
+                    deactivateMessagingButton={appUiReady}
+                    isMinimized={isMinimized}
+                    onConversationCleanup={onConversationCleanup} />
             }
             {(shouldShowMessagingWindow || isMinimized) && useWidgetUI &&
-                <Draggable intitialPosition={{ x: window.innerWidth - 570, y: window.innerHeight - 700 }}>
-                    <MessagingWindow
-                        shouldShowMessagingWindow={shouldShowMessagingWindow}
-                        isExistingConversation={isExistingConversation}
-                        showMessagingWindow={showMessagingWindow}
-                        deactivateMessagingButton={appUiReady}
-                        isMinimized={isMinimized}
-                        onConversationCleanup={onConversationCleanup} />
-                </Draggable>
+                <MessagingWindow
+                    shouldShowMessagingWindow={shouldShowMessagingWindow}
+                    isExistingConversation={isExistingConversation}
+                    showMessagingWindow={showMessagingWindow}
+                    deactivateMessagingButton={appUiReady}
+                    isMinimized={isMinimized}
+                    onConversationCleanup={onConversationCleanup} />
             }
         </>
     );

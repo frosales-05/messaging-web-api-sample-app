@@ -10,7 +10,8 @@
     width: 550px;
     height: 600px;
     display: inline-block;
-    cursor: move;
+    bottom: 80px;
+    right: 10px;
 }
 
 .messagingWindow[class~="hide"] {
