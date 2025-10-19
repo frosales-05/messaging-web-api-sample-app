@@ -152,6 +152,32 @@ export const removeItemInWebStorage = (key) => {
 };
 
 /**
+ * Clear conversation-specific data while preserving deployment configuration
+ * This allows users to close and reopen the chat without losing setup credentials
+ */
+export const clearConversationData = () => {
+    const conversationKeys = [
+        "JWT",
+        "LAST_EVENT_ID",
+        "CONVERSATION_ID",
+        "CONVERSATION_ENTRIES"
+    ];
+
+    const storage = determineStorageType(true);
+    if (storage && storageKey) {
+        const storageObj = (storage.getItem(storageKey) && JSON.parse(storage.getItem(storageKey))) || {};
+        
+        // Remove only conversation-specific keys
+        conversationKeys.forEach(key => {
+            delete storageObj[key];
+        });
+        
+        storage.setItem(storageKey, JSON.stringify(storageObj));
+        console.log(`Conversation data cleared from web storage (config preserved)`);
+    }
+};
+
+/**
  * Clear all client side stored item in both localStorage & sessionStorage
  */
 export const clearWebStorage = () => {

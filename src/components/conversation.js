@@ -11,7 +11,7 @@ import { subscribeToEventSource, closeEventSource } from '../services/eventSourc
 import { sendTypingIndicator, sendTextMessage, getContinuityJwt, listConversations, listConversationEntries, closeConversation, getUnauthenticatedAccessToken, createConversation } from "../services/messagingService";
 import * as ConversationEntryUtil from "../helpers/conversationEntryUtil";
 import { CONVERSATION_CONSTANTS, STORAGE_KEYS, CLIENT_CONSTANTS } from "../helpers/constants";
-import { setItemInWebStorage, clearWebStorage } from "../helpers/webstorageUtils";
+import { setItemInWebStorage, removeItemInWebStorage } from "../helpers/webstorageUtils";
 import { util } from "../helpers/common";
 import { prechatUtil } from "../helpers/prechatUtil.js";
 import Prechat from "./prechat.js";
@@ -33,16 +33,22 @@ export default function Conversation(props) {
     // Initialize whether at least 1 participant (not including end user) is typing.
     let [isAnotherParticipantTyping, setIsAnotherParticipantTyping] = useState(false);
 
+    // Component will remount when key changes based on isExistingConversation
     useEffect(() => {
         let conversationStatePromise;
+        const isExisting = props.isExistingConversation;
+        const onUIReady = props.uiReady;
+        const onShowMessagingWindow = props.showMessagingWindow;
 
-        conversationStatePromise = props.isExistingConversation ? handleExistingConversation() : handleNewConversation();
+        console.log("🔄 Conversation component mounted/remounted. isExistingConversation:", isExisting);
+
+        conversationStatePromise = isExisting ? handleExistingConversation() : handleNewConversation();
         conversationStatePromise
         .then(() => {
             handleSubscribeToEventSource()
-            .then(props.uiReady(true)) // Let parent (i.e. MessagingWindow) know the app is UI ready so that the parent can decide to show the actual Messaging window UI.
+            .then(onUIReady(true)) // Let parent (i.e. MessagingWindow) know the app is UI ready so that the parent can decide to show the actual Messaging window UI.
             .catch(() => {
-                props.showMessagingWindow(false);
+                onShowMessagingWindow(false);
             })
         });
 
@@ -53,6 +59,49 @@ export default function Conversation(props) {
             });
         };
     }, []);
+
+    /**
+     * Monitor if the current conversation has been closed.
+     * If it has (conversationStatus = CLOSED_CONVERSATION) AND the user wants to see the window (shouldShowMessagingWindow),
+     * automatically start a new one.
+     * This handles the case where user closes conversation with X and then clicks button again.
+     */
+    useEffect(() => {
+        console.log("📊 Conversation status check. Status:", conversationStatus, "isExistingConversation:", props.isExistingConversation, "shouldShowMessagingWindow:", props.shouldShowMessagingWindow);
+        
+        // Only start new conversation if:
+        // 1. Current conversation is closed
+        // 2. No existing conversation available
+        // 3. Window should be shown (user clicked button to open)
+        if (conversationStatus === CONVERSATION_CONSTANTS.ConversationStatus.CLOSED_CONVERSATION && 
+            props.isExistingConversation === false &&
+            props.shouldShowMessagingWindow === true) {
+            console.log("🔄 Detected: Current conversation is closed, no existing conversation, and window should be shown. Starting new conversation.");
+            
+            // Clear old UI state so user sees blank chat
+            console.log("🧹 Clearing old conversation entries from UI");
+            setConversationEntries([]);
+            setShowPrechatForm(false);
+            setFailedMessage(undefined);
+            setIsAnotherParticipantTyping(false);
+            
+            // Reset conversation status to NOT_STARTED so it can initialize fresh
+            updateConversationStatus(CONVERSATION_CONSTANTS.ConversationStatus.NOT_STARTED_CONVERSATION);
+            
+            // Start a new conversation
+            const newConversationPromise = handleNewConversation();
+            newConversationPromise
+            .then(() => {
+                handleSubscribeToEventSource()
+                .then(props.uiReady(true))
+                .catch(() => {
+                    props.showMessagingWindow(false);
+                })
+            });
+        }
+        // Only depend on these specific values to avoid infinite loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [conversationStatus, props.isExistingConversation, props.shouldShowMessagingWindow]);
 
     /**
      * Update conversation status state based on the event from a child component i.e. MessagingHeader.
@@ -125,21 +174,36 @@ export default function Conversation(props) {
     /**
      * Handles fetching an Unauthenticated Access Token i.e. Messaging JWT.
      *
-     * 1. If a JWT already exists, simply return.
+     * 1. ALWAYS clear any old JWT and in-memory data before fetching new one
+     *    This ensures we get a fresh token for a new conversation
      * 2. Makes a request to Unauthenticated Access Token endpoint.
      * 3. Updates the web storage with the latest JWT.
      * 4. Performs a cleanup - clears messaging data and closes the Messaging Window, if the request is unsuccessful.
      * @returns {Promise}
      */
     function handleGetUnauthenticatedJwt() {
+        // ALWAYS clear any old JWT and in-memory data before fetching new one
+        // This ensures fresh token for new conversation
+        console.log("🔑 Clearing any existing JWT and in-memory data before fetching new token");
+        removeItemInWebStorage(STORAGE_KEYS.JWT);
+        removeItemInWebStorage(STORAGE_KEYS.LAST_EVENT_ID);
+        removeItemInWebStorage(STORAGE_KEYS.CONVERSATION_ID);
+        removeItemInWebStorage("CONVERSATION_ENTRIES");
+        clearInMemoryData();
+
+        const currentJwt = getJwt();
+        console.log("📋 handleGetUnauthenticatedJwt() called. isExistingConversation:", props.isExistingConversation, "currentJwt after cleanup:", !!currentJwt);
+
+        // After cleanup, should be nothing left
         if (getJwt()) {
-            console.warn("Messaging access token (JWT) already exists in the web storage. Discontinuing to create a new Unauthenticated access token.");
-            return handleExistingConversation().then(Promise.reject());
+            console.warn("⚠️ WARNING: JWT still exists after cleanup!");
+            return Promise.reject(new Error("Failed to clean up old JWT"));
         }
 
+        console.log("🔑 Fetching new unauthenticated JWT...");
         return getUnauthenticatedAccessToken()
                 .then((response) => {
-                    console.log("Successfully fetched an Unauthenticated access token.");
+                    console.log("✅ Successfully fetched an Unauthenticated access token.");
                     // Parse the response object which includes access-token (JWT), configutation data.
                     if (typeof response === "object") {
                         setJwt(response.accessToken);
@@ -149,7 +213,7 @@ export default function Conversation(props) {
                     }    
                 })
                 .catch((err) => {
-                    console.error(`Something went wrong in fetching an Unauthenticated access token: ${err && err.message ? err.message : err}`);
+                    console.error(`❌ Something went wrong in fetching an Unauthenticated access token: ${err && err.message ? err.message : err}`);
                     handleMessagingErrors(err);
                     cleanupMessagingData();
                     props.showMessagingWindow(false);
@@ -662,8 +726,9 @@ export default function Conversation(props) {
     }
 
     /**
-     * Close messaging window handler for the event from a child component i.e. MessagingHeader.
-     * When such event is received, invoke the parent's handler to close the messaging window if the conversation status is closed or not yet started.
+     * End conversation handler.
+     * When conversation is opened, closes it in Salesforce.
+     * Always returns a Promise for consistent async handling.
      */
     function endConversation() {
         if (conversationStatus === CONVERSATION_CONSTANTS.ConversationStatus.OPENED_CONVERSATION) {
@@ -679,24 +744,38 @@ export default function Conversation(props) {
                     cleanupMessagingData();
                 });
         }
+        // Return resolved promise if conversation is not open
+        return Promise.resolve();
+    }
+
+    /**
+     * Minimize chat handler.
+     * Hides the window but keeps the conversation active in storage.
+     */
+    function handleMinimizeClick() {
+        console.log("Chat minimized");
+        props.showMessagingWindow(false, false); // false for closeCompletely = just minimize
     }
 
     /**
      * Close messaging window handler for the event from a child component i.e. MessagingHeader.
-     * When such event is received, invoke the parent's handler to close the messaging window if the conversation status is closed or not yet started.
+     * When such event is received, invoke the parent's handler to close the messaging window.
+     * @param {boolean} closeCompletely - If true, close conversation in Salesforce; if false, just minimize
      */
-    function closeMessagingWindow() {
+    function closeMessagingWindow(closeCompletely = false) {
         if (conversationStatus === CONVERSATION_CONSTANTS.ConversationStatus.CLOSED_CONVERSATION || conversationStatus === CONVERSATION_CONSTANTS.ConversationStatus.NOT_STARTED_CONVERSATION) {
-            props.showMessagingWindow(false);
+            props.showMessagingWindow(false, closeCompletely);
         }
     }
 
     /**
      * Performs a cleanup in the app.
      * 1. Closes the EventSource connection.
-     * 2. Clears the web storage.
+     * 2. Removes only conversation-specific data (JWT, Conversation ID, entries) from storage
+     *    but preserves deployment configuration (Org ID, Deployment Name, URL) for reconnection
      * 3. Clears the in-memory messaging data.
      * 4. Update the internal conversation status to CLOSED.
+     * 5. Call parent callback to reset isExistingConversation
      */
     function cleanupMessagingData() {
         closeEventSource()
@@ -705,11 +784,21 @@ export default function Conversation(props) {
             console.error(`Something went wrong in closing the Event Source (SSE): ${err}`);
         });
 
-        clearWebStorage();
+        // Only remove conversation-specific keys, preserve deployment configuration
+        removeItemInWebStorage(STORAGE_KEYS.JWT);
+        removeItemInWebStorage(STORAGE_KEYS.LAST_EVENT_ID);
+        removeItemInWebStorage(STORAGE_KEYS.CONVERSATION_ID);
+        removeItemInWebStorage("CONVERSATION_ENTRIES");
+
         clearInMemoryData();
 
         // Update state to conversation closed status.
         updateConversationStatus(CONVERSATION_CONSTANTS.ConversationStatus.CLOSED_CONVERSATION);
+
+        // Call parent callback to reset isExistingConversation
+        if (props.onConversationCleanup) {
+            props.onConversationCleanup();
+        }
     }
 
     /**
@@ -784,7 +873,8 @@ export default function Conversation(props) {
             <MessagingHeader
                 conversationStatus={conversationStatus}
                 endConversation={endConversation}
-                closeMessagingWindow={closeMessagingWindow} />
+                closeMessagingWindow={closeMessagingWindow}
+                onMinimize={handleMinimizeClick} />
             {!showPrechatForm &&
             <>
                 <MessagingBody

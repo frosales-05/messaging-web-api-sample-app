@@ -4,25 +4,53 @@
     background-color: rgb(98 91 91);
     border-radius: 15px 15px 0px 0px;
     font-family: inherit;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    padding-right: 10px;
 }
 
-.messagingHeaderCloseButton {
-    float: right;
-    margin-right: 20px;
-    height: 50px;
-    width: max-content;
+.messagingHeaderMinimizeButton {
     background: transparent;
     border: none;
     pointer-events: all;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
 }
 
-.messagingHeaderCloseButtonIcon {
-    transform: scale(2);
+.messagingHeaderMinimizeButtonIcon {
+    transform: scale(1.5);
     fill: whitesmoke;
 }
 
-.messagingHeaderCloseButtonIcon:hover{
+.messagingHeaderMinimizeButtonIcon:hover {
     opacity: 0.5;
-    transform: scale(2);
+    transform: scale(1.5);
+}
+
+.messagingHeaderCloseButton {
+    background: transparent;
+    border: none;
+    pointer-events: all;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+}
+
+.messagingHeaderCloseButtonIcon {
+    transform: scale(1.5);
+    fill: whitesmoke;
+}
+
+.messagingHeaderCloseButtonIcon:hover {
+    opacity: 0.5;
+    transform: scale(1.5);
 }

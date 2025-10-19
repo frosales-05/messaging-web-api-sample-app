@@ -20,21 +20,26 @@ export default function MessagingWindow(props) {
 
     /**
      * Generates a classname for the parent div that holds the messaging window ui.
-     * Hides the parent div if the app is not ui ready.
+     * Hides the parent div if the app is not ui ready or if the chat is minimized.
      * @returns {string}
      */
     function generateMessagingWindowClassName() {
         const className = "messagingWindow";
-
-        return className + `${uiReady ? "" : " hide"}`;
+        
+        // Hide if not UI ready OR if minimized
+        const isHidden = !uiReady || props.isMinimized;
+        return className + `${isHidden ? " hide" : ""}`;
     }
 
     return(
         <div className={generateMessagingWindowClassName()}>
             <Conversation
+                key={`conversation-${props.conversationKey}`}
+                shouldShowMessagingWindow={props.shouldShowMessagingWindow}
                 isExistingConversation={props.isExistingConversation}
                 showMessagingWindow={props.showMessagingWindow}
-                uiReady={setAppUIReady} />
+                uiReady={setAppUIReady}
+                onConversationCleanup={props.onConversationCleanup} />
         </div>
     );
 }

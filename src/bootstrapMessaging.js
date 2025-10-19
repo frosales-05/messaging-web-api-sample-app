@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 // Import children components to render.
 import MessagingWindow from "./components/messagingWindow";
 import MessagingButton from "./components/messagingButton";
+import MessagingWidget from "./components/messagingWidget";
 
 import './bootstrapMessaging.css';
 
@@ -21,14 +22,78 @@ export default function BootstrapMessaging() {
     let [messagingURL, setMessagingURL] = useState('');
     let [shouldDisableMessagingButton, setShouldDisableMessagingButton] = useState(false);
     let [shouldShowMessagingWindow, setShouldShowMessagingWindow] = useState(false);
+    let [isMinimized, setIsMinimized] = useState(false);
+    let [conversationClosed, setConversationClosed] = useState(false);
     let [showMessagingButtonSpinner, setShowMessagingButtonSpinner] = useState(false);
     let [isExistingConversation, setIsExistingConversation] = useState(false);
+    let [shouldShowForm, setShouldShowForm] = useState(true);
+    let [autoConnectAttempted, setAutoConnectAttempted] = useState(false);
+    let [useWidgetUI, setUseWidgetUI] = useState(false);
+    // Unique ID for each conversation to force component remount
+    let [conversationKey, setConversationKey] = useState(0);
 
     useEffect(() => {
         const storage = determineStorageType();
         if (!storage) {
             console.error(`Cannot initialize the app. Web storage is required for the app to function.`);
             return;
+        }
+
+        // Load environment variables for auto-connect
+        const envOrgId = process.env.REACT_APP_SALESFORCE_ORG_ID;
+        const envDeploymentName = process.env.REACT_APP_SALESFORCE_DEPLOYMENT_NAME;
+        const envMessagingUrl = process.env.REACT_APP_SALESFORCE_MESSAGING_URL;
+        const autoConnect = process.env.REACT_APP_AUTO_CONNECT === 'true';
+
+        console.log('=== AUTO-CONNECT DEBUG ===');
+        console.log('REACT_APP_SALESFORCE_ORG_ID:', envOrgId);
+        console.log('REACT_APP_SALESFORCE_DEPLOYMENT_NAME:', envDeploymentName);
+        console.log('REACT_APP_SALESFORCE_MESSAGING_URL:', envMessagingUrl);
+        console.log('REACT_APP_AUTO_CONNECT:', process.env.REACT_APP_AUTO_CONNECT, '(boolean:', autoConnect, ')');
+        console.log('autoConnectAttempted:', autoConnectAttempted);
+
+        // Check if environment variables are set for auto-connect
+        if (autoConnect && envOrgId && envDeploymentName && envMessagingUrl && !autoConnectAttempted) {
+            console.log('Auto-connect conditions met, validating credentials...');
+            const isValidOrgId = isValidOrganizationId(envOrgId);
+            const isValidDeployName = isValidDeploymentDeveloperName(envDeploymentName);
+            const isValidUrlValue = isValidUrl(envMessagingUrl);
+            console.log('isValidOrganizationId:', isValidOrgId);
+            console.log('isValidDeploymentDeveloperName:', isValidDeployName);
+            console.log('isValidUrl:', isValidUrlValue);
+            console.log('Full URL for validation:', envMessagingUrl);
+            
+            if (isValidOrgId && isValidDeployName && isValidUrlValue) {
+                console.log('✅ All validations passed! Auto-connecting with environment variables...');
+                setAutoConnectAttempted(true);
+                setOrgId(envOrgId);
+                setDeploymentDevName(envDeploymentName);
+                setMessagingURL(envMessagingUrl);
+                setShouldShowForm(false);
+                setUseWidgetUI(true);
+                
+                // Initialize messaging client with env values
+                initializeMessagingClient(envOrgId, envDeploymentName, envMessagingUrl);
+                
+                // Check for existing conversation
+                const messagingJwt = getItemInWebStorageByKey(STORAGE_KEYS.JWT);
+                if (messagingJwt) {
+                    console.log('Existing conversation found');
+                    setIsExistingConversation(true);
+                    setShowMessagingButton(true);
+                    setShouldDisableMessagingButton(true);
+                    setShouldShowMessagingWindow(true);
+                } else {
+                    console.log('No existing conversation - showing button to start new one');
+                    setIsExistingConversation(false);
+                    setShowMessagingButton(true);
+                }
+                return;
+            } else {
+                console.warn('❌ Validation failed! One or more credentials are invalid.');
+                console.warn('Details:', {isValidOrgId, isValidDeployName, isValidUrlValue});
+                setAutoConnectAttempted(true);
+            }
         }
 
         const messaging_webstorage_key = Object.keys(storage).filter(item => item.startsWith(APP_CONSTANTS.WEB_STORAGE_KEY))[0];
@@ -44,6 +109,7 @@ export default function BootstrapMessaging() {
                 storage.removeItem(messaging_webstorage_key);
                 // New conversation.
                 setIsExistingConversation(false);
+                setShouldShowForm(true);
                 return;
             }
             
@@ -51,6 +117,7 @@ export default function BootstrapMessaging() {
             setOrgId(orgId);
             setDeploymentDevName(deploymentDevName);
             setMessagingURL(messagingUrl);
+            setShouldShowForm(false);
 
             // Initialize messaging client.
             initializeMessagingClient(orgId, deploymentDevName, messagingUrl);
@@ -69,12 +136,26 @@ export default function BootstrapMessaging() {
         } else {
             // New conversation.
             setIsExistingConversation(false);
+            setShouldShowForm(true);
         }
 
         return () => {
             showMessagingWindow(false);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // Auto-open messaging window when button is ready and auto-connect is enabled
+    useEffect(() => {
+        if (shouldShowMessagingButton && !shouldShowMessagingWindow && autoConnectAttempted && process.env.REACT_APP_AUTO_CONNECT === 'true' && !shouldShowForm) {
+            console.log('Auto-opening messaging window...');
+            // Simulate button click to properly initialize the messaging window
+            setTimeout(() => {
+                handleMessagingButtonClick();
+            }, 300);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [shouldShowMessagingButton]);
 
     /**
      * Initialize the messaging client by
@@ -111,7 +192,9 @@ export default function BootstrapMessaging() {
      */
     function isSalesforceUrl(url) {
         try {
-            return typeof url === "string" && url.length > 0 && url.slice(-19) === APP_CONSTANTS.SALESFORCE_MESSAGING_SCRT_URL;
+            // Accept URLs both with and without trailing slash
+            const normalizedUrl = url.endsWith('/') ? url : url + '/';
+            return typeof url === "string" && url.length > 0 && normalizedUrl.slice(-20) === APP_CONSTANTS.SALESFORCE_MESSAGING_SCRT_URL + '/';
         } catch (err) {
             console.error(`Something went wrong in validating whether the url is a Salesforce url: ${err}`);
             return false;
@@ -164,6 +247,15 @@ export default function BootstrapMessaging() {
     }
 
     /**
+     * Reset isExistingConversation when conversation is cleaned up.
+     * Called from conversation.js after cleanupMessagingData()
+     */
+    function onConversationCleanup() {
+        console.log("Conversation cleaned up - resetting isExistingConversation to false");
+        setIsExistingConversation(false);
+    }
+
+    /**
      * Determines whether the Deployment-Details-Form Submit Button should be enabled/disabled.
      * @returns {boolean} TRUE - disabled the button and FALSE - otherwise
      */
@@ -173,29 +265,82 @@ export default function BootstrapMessaging() {
 
     /**
      * Handle a click action from the Messaging Button.
+     * If minimized with active conversation, restore window.
+     * If minimized without active conversation (closed), open new conversation.
+     * If window is open, minimize.
+     * If window is closed, open new conversation.
      * @param {object} evt - button click event
      */
     function handleMessagingButtonClick(evt) {
         if (evt) {
-            console.log("Messaging Button clicked.");
-            setShowMessagingButtonSpinner(true);
-            showMessagingWindow(true);
+            console.log("Messaging Button clicked.", {isMinimized, shouldShowMessagingWindow, isExistingConversation, conversationKey});
+            
+            if (isMinimized && isExistingConversation) {
+                // If minimized WITH active conversation, restore the window
+                console.log("Restoring chat from minimized state (active conversation)");
+                setIsMinimized(false);
+                setShouldShowMessagingWindow(true);
+            } else if (isMinimized && !isExistingConversation) {
+                // If minimized BUT conversation is closed, open new conversation
+                console.log("Opening new conversation (previous was closed)");
+                setShowMessagingButtonSpinner(true);
+                setShouldShowMessagingWindow(true);
+                setIsMinimized(false);
+                // INCREMENT KEY to force component remount with new ID
+                setConversationKey(prev => {
+                    const newKey = prev + 1;
+                    console.log("🔄 Incrementing conversationKey:", prev, "→", newKey);
+                    return newKey;
+                });
+            } else if (shouldShowMessagingWindow) {
+                // If window is open, minimize it ONLY (don't close conversation)
+                console.log("Minimizing chat - only hiding window");
+                setIsMinimized(true);
+                setShouldShowMessagingWindow(false);
+                // DO NOT trigger endConversation or any Salesforce logic
+            } else {
+                // Otherwise open a new conversation
+                console.log("Opening new conversation");
+                setShowMessagingButtonSpinner(true);
+                setShouldShowMessagingWindow(true);
+                setIsMinimized(false);
+                setConversationClosed(false);
+                // INCREMENT KEY to force component remount with new ID
+                setConversationKey(prev => {
+                    const newKey = prev + 1;
+                    console.log("🔄 Incrementing conversationKey:", prev, "→", newKey);
+                    return newKey;
+                });
+            }
         }
     }
 
     /**
      * Determines whether to render the Messaging Window based on the supplied parameter.
-     * @param {boolean} shouldShow - TRUE - render the Messaging WINDOW and FALSE - Do not render the Messaging Window & Messaging Button
+     * When closing completely (not just minimizing), cleanup and reset state.
+     * @param {boolean} shouldShow - TRUE - render the Messaging WINDOW, FALSE - minimize or close
+     * @param {boolean} closeCompletely - TRUE - close conversation in Salesforce, FALSE - just minimize
      */
-    function showMessagingWindow(shouldShow) {
+    function showMessagingWindow(shouldShow, closeCompletely = false) {
         setShouldShowMessagingWindow(Boolean(shouldShow));
+        
         if (!shouldShow) {
-            // Enable Messaging Button again when Messaging Window is closed.
-            setShouldDisableMessagingButton(false);
-            // Remove the spinner on the Messaging Button.
+            if (closeCompletely) {
+                // Complete close: cleanup conversation in Salesforce
+                console.log("Closing conversation completely");
+                setConversationClosed(true);
+                setIsMinimized(false);
+                setShowMessagingButtonSpinner(false);
+            } else {
+                // Just minimize: keep conversation active
+                console.log("Minimizing conversation");
+                setIsMinimized(true);
+                setShowMessagingButtonSpinner(false);
+            }
+        } else {
+            // Opening
+            setIsMinimized(false);
             setShowMessagingButtonSpinner(false);
-            // Hide Messaging Button to re-initialize the client with form submit.
-            setShowMessagingButton(false);
         }
     }
 
@@ -212,50 +357,79 @@ export default function BootstrapMessaging() {
 
     return (
         <>
-            <h1>Messaging for Web - Sample App</h1>
-            <div className="deploymentDetailsForm">
-                <h4>Input your Embedded Service (Custom Client) deployment details below</h4>
-                <label>Organization ID</label>
-                <input
-                    type="text"
-                    value={orgId || ""}
-                    onChange={e => setOrgId(e.target.value.trim())}
-                    disabled={shouldShowMessagingButton}>
-                </input>
-                <label>Developer Name</label>
-                <input
-                    type="text"
-                    value={deploymentDevName || ""}
-                    onChange={e => setDeploymentDevName(e.target.value.trim())}
-                    disabled={shouldShowMessagingButton}>
-                </input>
-                <label>URL</label>
-                <input
-                    type="text"
-                    value={messagingURL || ""}
-                    onChange={e => setMessagingURL(e.target.value.trim())}
-                    disabled={shouldShowMessagingButton}>
-                </input>
-                <button
-                    className="deploymentDetailsFormSubmitButton"
-                    onClick={handleDeploymentDetailsFormSubmit}
-                    disabled={shouldDisableFormSubmitButton()}
-                >
-                    Submit
-                </button>
-            </div>
-            {shouldShowMessagingButton &&
-                <MessagingButton
-                    clickHandler={handleMessagingButtonClick}
-                    disableButton={shouldDisableMessagingButton}
-                    showSpinner={showMessagingButtonSpinner} />}
-            {shouldShowMessagingWindow &&
+            {!useWidgetUI && (
+                <>
+                    <h1>Messaging for Web - Sample App</h1>
+                    {shouldShowForm && (
+                        <div className="deploymentDetailsForm">
+                            <h4>Input your Embedded Service (Custom Client) deployment details below</h4>
+                            <label>Organization ID</label>
+                            <input
+                                type="text"
+                                value={orgId || ""}
+                                onChange={e => setOrgId(e.target.value.trim())}
+                                disabled={shouldShowMessagingButton}>
+                            </input>
+                            <label>Developer Name</label>
+                            <input
+                                type="text"
+                                value={deploymentDevName || ""}
+                                onChange={e => setDeploymentDevName(e.target.value.trim())}
+                                disabled={shouldShowMessagingButton}>
+                            </input>
+                            <label>URL</label>
+                            <input
+                                type="text"
+                                value={messagingURL || ""}
+                                onChange={e => setMessagingURL(e.target.value.trim())}
+                                disabled={shouldShowMessagingButton}>
+                            </input>
+                            <button
+                                className="deploymentDetailsFormSubmitButton"
+                                onClick={handleDeploymentDetailsFormSubmit}
+                                disabled={shouldDisableFormSubmitButton()}
+                            >
+                                Submit
+                            </button>
+                        </div>
+                    )}
+                    {shouldShowMessagingButton &&
+                        <MessagingButton
+                            clickHandler={handleMessagingButtonClick}
+                            disableButton={shouldDisableMessagingButton}
+                            showSpinner={showMessagingButtonSpinner} />}
+                </>
+            )}
+            {useWidgetUI && shouldShowMessagingButton && (
+                <MessagingWidget
+                    isOpen={shouldShowMessagingWindow}
+                    isMinimized={isMinimized}
+                    onToggle={showMessagingWindow}
+                    isLoading={showMessagingButtonSpinner}
+                    isExistingConversation={isExistingConversation}
+                    onAppUiReady={appUiReady}
+                    onClickButton={handleMessagingButtonClick}
+                />
+            )}
+            {(shouldShowMessagingWindow || isMinimized) && !useWidgetUI &&
                 <Draggable intitialPosition={{ x: 1000, y: 500 }}>
                     <MessagingWindow
+                        shouldShowMessagingWindow={shouldShowMessagingWindow}
                         isExistingConversation={isExistingConversation}
                         showMessagingWindow={showMessagingWindow}
-                        deactivateMessagingButton={appUiReady} />
+                        deactivateMessagingButton={appUiReady}
+                        isMinimized={isMinimized}
+                        onConversationCleanup={onConversationCleanup} />
                 </Draggable>
+            }
+            {(shouldShowMessagingWindow || isMinimized) && useWidgetUI &&
+                <MessagingWindow
+                    shouldShowMessagingWindow={shouldShowMessagingWindow}
+                    isExistingConversation={isExistingConversation}
+                    showMessagingWindow={showMessagingWindow}
+                    deactivateMessagingButton={appUiReady}
+                    isMinimized={isMinimized}
+                    onConversationCleanup={onConversationCleanup} />
             }
         </>
     );
